@@ -2,7 +2,7 @@ package lua
 
 // TryLock is the Lua script for trying to acquire a lock
 const TryLock = `
-if redis.call('exists', KEYS[1]) == 0 then
+if redis.call('exists', KEYS[1]) == 0 or redis.call('hget', KEYS[1], 'owner') == ARGV[1] then
     redis.call('hset', KEYS[1], 'owner', ARGV[1])
     redis.call('pexpire', KEYS[1], ARGV[2])
     return 1

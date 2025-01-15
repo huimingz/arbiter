@@ -2,6 +2,9 @@ package redission
 
 import (
 	"context"
+	stderrors "errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,14 +33,12 @@ func TestLock(t *testing.T) {
 
 	t.Run("basic lock and unlock", func(t *testing.T) {
 		lock := client.NewLock("test-lock")
-		
-		// Should be able to acquire lock
+
 		err := lock.Lock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to acquire lock: %v", err)
 		}
 
-		// Should be able to unlock
 		err = lock.Unlock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to release lock: %v", err)
@@ -48,7 +49,6 @@ func TestLock(t *testing.T) {
 		lock1 := client.NewLock("test-trylock")
 		lock2 := client.NewLock("test-trylock")
 
-		// First lock should succeed
 		acquired, err := lock1.TryLock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to try lock: %v", err)
@@ -57,7 +57,6 @@ func TestLock(t *testing.T) {
 			t.Fatal("Should acquire first lock")
 		}
 
-		// Second lock should fail
 		acquired, err = lock2.TryLock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to try lock: %v", err)
@@ -66,7 +65,6 @@ func TestLock(t *testing.T) {
 			t.Fatal("Should not acquire second lock")
 		}
 
-		// Cleanup
 		err = lock1.Unlock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to release lock: %v", err)
@@ -79,19 +77,16 @@ func TestLock(t *testing.T) {
 			WithWaitTimeout(2*time.Second),
 		)
 
-		// Acquire first lock
 		err := lock1.Lock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to acquire first lock: %v", err)
 		}
 
-		// Second lock should timeout
 		err = lock2.Lock(ctx)
 		if err != ErrLockTimeout {
 			t.Fatalf("Expected timeout error, got: %v", err)
 		}
 
-		// Cleanup
 		err = lock1.Unlock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to release lock: %v", err)
@@ -105,22 +100,18 @@ func TestLock(t *testing.T) {
 			WithWatchDogTimeout(1*time.Second),
 		)
 
-		// Acquire lock
 		err := lock.Lock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to acquire lock: %v", err)
 		}
 
-		// Wait for longer than lease time
 		time.Sleep(3 * time.Second)
 
-		// Lock should still be valid
 		err = lock.Refresh(ctx)
 		if err != nil {
 			t.Fatalf("Lock should still be valid: %v", err)
 		}
 
-		// Cleanup
 		err = lock.Unlock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to release lock: %v", err)
@@ -132,22 +123,144 @@ func TestLock(t *testing.T) {
 			WithLeaseTime(2*time.Second),
 		)
 
-		// Acquire lock
 		err := lock.Lock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to acquire lock: %v", err)
 		}
 
-		// Manual refresh
 		err = lock.Refresh(ctx)
 		if err != nil {
 			t.Fatalf("Failed to refresh lock: %v", err)
 		}
 
-		// Cleanup
 		err = lock.Unlock(ctx)
 		if err != nil {
 			t.Fatalf("Failed to release lock: %v", err)
+		}
+	})
+}
+
+func TestConcurrentLock(t *testing.T) {
+	redisClient := setupRedis(t)
+	defer redisClient.Close()
+
+	client := NewClient(redisClient)
+	ctx := context.Background()
+
+	t.Run("concurrent lock acquisition", func(t *testing.T) {
+		const (
+			numGoroutines = 10
+			numIterations = 20
+		)
+
+		var (
+			wg           sync.WaitGroup
+			successCount atomic.Int32
+			lockHolder   atomic.Int32
+			errors       = make(chan error, numGoroutines*numIterations)
+		)
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+
+				lock := client.NewLock("test-concurrent",
+					WithWaitTimeout(5*time.Second),
+					WithLeaseTime(1*time.Second),
+				)
+
+				for j := 0; j < numIterations; j++ {
+					err := lock.Lock(ctx)
+					if err != nil {
+						if err != ErrLockTimeout {
+							errors <- err
+						}
+						continue
+					}
+
+					// Ensure that only one goroutine holds the lock at any given time.
+					// If the lockHolder is not zero, it means that some other goroutine
+					// is holding the lock, which is unexpected.
+					prev := lockHolder.Add(1)
+					if prev > 1 {
+						errors <- stderrors.New("multiple lock holders detected")
+					}
+
+					time.Sleep(100 * time.Millisecond)
+
+					lockHolder.Add(-1)
+					successCount.Add(1)
+
+					if err := lock.Unlock(ctx); err != nil {
+						errors <- err
+					}
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(errors)
+
+		for err := range errors {
+			t.Errorf("Concurrent lock error: %v", err)
+		}
+
+		if successCount.Load() == 0 {
+			t.Error("No goroutine succeeded in acquiring the lock")
+		}
+		t.Logf("Successfully acquired lock %d times", successCount.Load())
+	})
+
+	t.Run("concurrent lock and refresh", func(t *testing.T) {
+		const numGoroutines = 5
+		var wg sync.WaitGroup
+		errors := make(chan error, numGoroutines)
+
+		lock1 := client.NewLock("test-concurrent-refresh",
+			WithLeaseTime(2*time.Second),
+		)
+
+		if err := lock1.Lock(ctx); err != nil {
+			t.Fatalf("Failed to acquire initial lock: %v", err)
+		}
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+
+				lock2 := client.NewLock("test-concurrent-refresh",
+					WithWaitTimeout(1*time.Second),
+				)
+
+				if acquired, err := lock2.TryLock(ctx); err != nil {
+					errors <- err
+				} else if acquired {
+					errors <- stderrors.New("lock should not be acquired")
+				}
+			}(i)
+		}
+
+		go func() {
+			for i := 0; i < 3; i++ {
+				time.Sleep(1 * time.Second)
+				if err := lock1.Refresh(ctx); err != nil {
+					errors <- err
+					return
+				}
+			}
+		}()
+
+		wg.Wait()
+
+		if err := lock1.Unlock(ctx); err != nil {
+			t.Errorf("Failed to release lock: %v", err)
+		}
+
+		close(errors)
+		for err := range errors {
+			t.Errorf("Concurrent refresh error: %v", err)
 		}
 	})
 }

@@ -20,6 +20,7 @@ type lockImpl struct {
 	name    string
 	value   string
 	options *LockOptions
+	logger  Logger
 
 	watchDogCtx    context.Context
 	watchDogCancel context.CancelFunc
@@ -29,33 +30,42 @@ type lockImpl struct {
 	mu sync.Mutex
 }
 
-func newLock(redis *redis.Client, name string, options *LockOptions) Lock {
+func newLock(redis *redis.Client, name string, options *LockOptions, logger Logger) Lock {
 	return &lockImpl{
 		redis:   redis,
 		name:    name,
 		value:   generateValue(),
 		options: options,
+		logger:  logger,
 		watchDogDone: make(chan struct{}),
 	}
 }
 
 func (l *lockImpl) Lock(ctx context.Context) error {
 	deadline := time.Now().Add(l.options.WaitTimeout)
+	l.logger.Debug(ctx, "Attempting to acquire lock: %s", l.name)
+	
+	attempt := 0
 	for {
+		attempt++
 		acquired, err := l.TryLock(ctx)
 		if err != nil {
+			l.logger.Error(ctx, "Failed to acquire lock: %s, error: %v", l.name, err)
 			return err
 		}
 		if acquired {
+			l.logger.Info(ctx, "Successfully acquired lock: %s", l.name)
 			return nil
 		}
 
 		if l.options.WaitTimeout > 0 && time.Now().After(deadline) {
+			l.logger.Warn(ctx, "Timeout waiting for lock: %s", l.name)
 			return ErrLockTimeout
 		}
 
 		select {
 		case <-ctx.Done():
+			l.logger.Debug(ctx, "Context cancelled while waiting for lock: %s", l.name)
 			return ctx.Err()
 		case <-time.After(100 * time.Millisecond): // retry delay
 			continue
@@ -67,7 +77,6 @@ func (l *lockImpl) TryLock(ctx context.Context) (bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Try to acquire the lock
 	leaseTime := l.options.LeaseTime
 	if l.options.EnableWatchDog {
 		leaseTime = l.options.WatchDogTimeout
@@ -75,14 +84,15 @@ func (l *lockImpl) TryLock(ctx context.Context) (bool, error) {
 
 	ok, err := l.redis.Eval(ctx, lua.TryLock, []string{l.name}, l.value, leaseTime.Milliseconds()).Bool()
 	if err != nil {
+		l.logger.Error(ctx, "Error trying to acquire lock: %s", l.name)
 		return false, err
 	}
 	if !ok {
 		return false, nil
 	}
 
-	// Start watchdog if enabled
 	if l.options.EnableWatchDog {
+		l.logger.Debug(ctx, "Starting watchdog for lock: %s", l.name)
 		l.startWatchDog(ctx)
 	}
 
@@ -93,21 +103,23 @@ func (l *lockImpl) Unlock(ctx context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Stop watchdog if it's running
+	l.logger.Debug(ctx, "Releasing lock: %s", l.name)
+
 	if l.watchDogCancel != nil {
 		l.watchDogCancel()
 		<-l.watchDogDone
 	}
 
-	// Release the lock
 	ok, err := l.redis.Eval(ctx, lua.Unlock, []string{l.name}, l.value).Bool()
 	if err != nil {
+		l.logger.Error(ctx, "Error releasing lock: %s", l.name)
 		return err
 	}
 	if !ok {
 		return ErrLockNotHeld
 	}
 
+	l.logger.Info(ctx, "Released lock: %s", l.name)
 	return nil
 }
 
@@ -122,6 +134,7 @@ func (l *lockImpl) Refresh(ctx context.Context) error {
 
 	ok, err := l.redis.Eval(ctx, lua.Refresh, []string{l.name}, l.value, leaseTime.Milliseconds()).Bool()
 	if err != nil {
+		l.logger.Error(ctx, "Error refreshing lock: %s", l.name)
 		return err
 	}
 	if !ok {
@@ -145,7 +158,7 @@ func (l *lockImpl) startWatchDog(ctx context.Context) {
 				select {
 				case <-ticker.C:
 					if err := l.Refresh(ctx); err != nil {
-						// If refresh fails, the lock might be lost
+						l.logger.Error(ctx, "Watchdog failed to refresh lock: %s", l.name)
 						return
 					}
 				case <-l.watchDogCtx.Done():
