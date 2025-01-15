@@ -1,4 +1,4 @@
-module github.com/huimingz/redission
+module github.com/huimingz/arbiter
 
 go 1.21
 

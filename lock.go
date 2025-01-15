@@ -1,4 +1,4 @@
-package redission
+package arbiter
 
 import "context"
 

@@ -1,6 +1,6 @@
-# Redission
+# Arbiter
 
-A Redis-based distributed lock implementation in Go, inspired by Redisson.
+A Redis-based distributed lock implementation in Go, designed to coordinate and arbitrate access to shared resources in distributed systems.
 
 ## Features
 
@@ -14,7 +14,7 @@ A Redis-based distributed lock implementation in Go, inspired by Redisson.
 ## Installation
 
 ```bash
-go get github.com/huimingz/redission
+go get github.com/huimingz/arbiter
 ```
 
 ## Quick Start
@@ -24,7 +24,7 @@ import (
     "context"
     "time"
     "github.com/redis/go-redis/v9"
-    "github.com/huimingz/redission"
+    "github.com/huimingz/arbiter"
 )
 
 func main() {
@@ -34,14 +34,14 @@ func main() {
     })
     defer redisClient.Close()
 
-    // Create Redission client
-    client := redission.NewClient(redisClient)
+    // Create Arbiter client
+    client := arbiter.NewClient(redisClient)
 
     // Create a lock with options
     lock := client.NewLock("my-lock",
-        redission.WithWaitTimeout(5*time.Second),  // Wait up to 5s to acquire lock
-        redission.WithLeaseTime(30*time.Second),   // Lock expires after 30s
-        redission.WithWatchDog(true),              // Auto-renew lock
+        arbiter.WithWaitTimeout(5*time.Second),  // Wait up to 5s to acquire lock
+        arbiter.WithLeaseTime(30*time.Second),   // Lock expires after 30s
+        arbiter.WithWatchDog(true),              // Auto-renew lock
     )
 
     // Try to acquire the lock
@@ -68,7 +68,7 @@ func main() {
 
 ## Logging
 
-Redission supports customizable logging through a simple interface:
+Arbiter supports customizable logging through a simple interface:
 
 ```go
 type Logger interface {
@@ -82,8 +82,8 @@ type Logger interface {
 You can provide your own logger implementation:
 
 ```go
-client := redission.NewClient(redisClient, 
-    redission.WithLogger(myLogger),
+client := arbiter.NewClient(redisClient, 
+    arbiter.WithLogger(myLogger),
 )
 ```
 
@@ -120,16 +120,16 @@ The distributed lock is implemented using Redis hash structures and Lua scripts 
 1. **Always Use Timeouts**
    ```go
    lock := client.NewLock("my-lock",
-       redission.WithWaitTimeout(5*time.Second),
-       redission.WithLeaseTime(30*time.Second),
+       arbiter.WithWaitTimeout(5*time.Second),
+       arbiter.WithLeaseTime(30*time.Second),
    )
    ```
 
 2. **Use Watchdog for Long Operations**
    ```go
    lock := client.NewLock("my-lock",
-       redission.WithWatchDog(true),
-       redission.WithWatchDogTimeout(10*time.Second),
+       arbiter.WithWatchDog(true),
+       arbiter.WithWatchDogTimeout(10*time.Second),
    )
    ```
 
@@ -137,7 +137,7 @@ The distributed lock is implemented using Redis hash structures and Lua scripts 
    ```go
    if err := lock.Lock(ctx); err != nil {
        switch err {
-       case redission.ErrLockTimeout:
+       case arbiter.ErrLockTimeout:
            // Handle timeout
        case context.DeadlineExceeded:
            // Handle context timeout

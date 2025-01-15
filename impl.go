@@ -1,4 +1,4 @@
-package redission
+package arbiter
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/huimingz/redission/internal/lua"
+	"github.com/huimingz/arbiter/internal/lua"
 )
 
 var (

@@ -1,4 +1,4 @@
-package redission
+package arbiter
 
 import (
 	"testing"
@@ -16,8 +16,8 @@ func TestLockOptions(t *testing.T) {
 			opts: []Option{},
 			expected: LockOptions{
 				WaitTimeout:     0,
-				LeaseTime:      30 * time.Second,
-				EnableWatchDog: false,
+				LeaseTime:       30 * time.Second,
+				EnableWatchDog:  false,
 				WatchDogTimeout: 30 * time.Second,
 			},
 		},
@@ -28,8 +28,8 @@ func TestLockOptions(t *testing.T) {
 			},
 			expected: LockOptions{
 				WaitTimeout:     5 * time.Second,
-				LeaseTime:      30 * time.Second,
-				EnableWatchDog: false,
+				LeaseTime:       30 * time.Second,
+				EnableWatchDog:  false,
 				WatchDogTimeout: 30 * time.Second,
 			},
 		},
@@ -40,8 +40,8 @@ func TestLockOptions(t *testing.T) {
 			},
 			expected: LockOptions{
 				WaitTimeout:     0,
-				LeaseTime:      10 * time.Second,
-				EnableWatchDog: false,
+				LeaseTime:       10 * time.Second,
+				EnableWatchDog:  false,
 				WatchDogTimeout: 30 * time.Second,
 			},
 		},
@@ -53,8 +53,8 @@ func TestLockOptions(t *testing.T) {
 			},
 			expected: LockOptions{
 				WaitTimeout:     0,
-				LeaseTime:      30 * time.Second,
-				EnableWatchDog: true,
+				LeaseTime:       30 * time.Second,
+				EnableWatchDog:  true,
 				WatchDogTimeout: 20 * time.Second,
 			},
 		},
@@ -68,8 +68,8 @@ func TestLockOptions(t *testing.T) {
 			},
 			expected: LockOptions{
 				WaitTimeout:     5 * time.Second,
-				LeaseTime:      10 * time.Second,
-				EnableWatchDog: true,
+				LeaseTime:       10 * time.Second,
+				EnableWatchDog:  true,
 				WatchDogTimeout: 20 * time.Second,
 			},
 		},

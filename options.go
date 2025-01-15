@@ -1,4 +1,4 @@
-package redission
+package arbiter
 
 import "time"
 
@@ -51,9 +51,9 @@ func WithWatchDogTimeout(timeout time.Duration) Option {
 // defaultOptions returns the default lock options
 func defaultOptions() *LockOptions {
 	return &LockOptions{
-		WaitTimeout:     0,                 // no wait timeout by default
-		LeaseTime:      30 * time.Second,  // 30 seconds lease time by default
-		EnableWatchDog: false,             // watchdog disabled by default
+		WaitTimeout:     0,                // no wait timeout by default
+		LeaseTime:       30 * time.Second, // 30 seconds lease time by default
+		EnableWatchDog:  false,            // watchdog disabled by default
 		WatchDogTimeout: 30 * time.Second, // 30 seconds watchdog timeout by default
 	}
 }
