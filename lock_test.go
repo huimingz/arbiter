@@ -264,3 +264,69 @@ func TestConcurrentLock(t *testing.T) {
 		}
 	})
 }
+
+func TestCustomKeyPrefix(t *testing.T) {
+	redisClient := setupRedis(t)
+	defer redisClient.Close()
+
+	customPrefix := "test-prefix:"
+	client := NewClient(redisClient, WithKeyPrefix(customPrefix))
+	ctx := context.Background()
+
+	t.Run("verify key prefix", func(t *testing.T) {
+		lockName := "test-lock"
+		lock := client.NewLock(lockName)
+
+		err := lock.Lock(ctx)
+		if err != nil {
+			t.Fatalf("Failed to acquire lock: %v", err)
+		}
+
+		// Verify the key exists with custom prefix
+		exists, err := redisClient.Exists(ctx, customPrefix+lockName).Result()
+		if err != nil {
+			t.Fatalf("Failed to check key existence: %v", err)
+		}
+		if exists != 1 {
+			t.Errorf("Expected key %s to exist", customPrefix+lockName)
+		}
+
+		// Clean up
+		err = lock.Unlock(ctx)
+		if err != nil {
+			t.Fatalf("Failed to release lock: %v", err)
+		}
+	})
+
+	t.Run("different prefixes don't conflict", func(t *testing.T) {
+		client1 := NewClient(redisClient, WithKeyPrefix("prefix1:"))
+		client2 := NewClient(redisClient, WithKeyPrefix("prefix2:"))
+		
+		lockName := "same-lock"
+		lock1 := client1.NewLock(lockName)
+		lock2 := client2.NewLock(lockName)
+
+		// Acquire first lock
+		err := lock1.Lock(ctx)
+		if err != nil {
+			t.Fatalf("Failed to acquire first lock: %v", err)
+		}
+
+		// Try to acquire second lock with different prefix
+		acquired, err := lock2.TryLock(ctx)
+		if err != nil {
+			t.Fatalf("Failed to try second lock: %v", err)
+		}
+		if !acquired {
+			t.Error("Second lock should be acquired as it uses different prefix")
+		}
+
+		// Clean up
+		if err := lock1.Unlock(ctx); err != nil {
+			t.Fatalf("Failed to release first lock: %v", err)
+		}
+		if err := lock2.Unlock(ctx); err != nil {
+			t.Fatalf("Failed to release second lock: %v", err)
+		}
+	})
+}

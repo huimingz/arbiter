@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
 	"github.com/huimingz/arbiter/internal/lua"
 )
 
@@ -26,17 +27,17 @@ type lockImpl struct {
 	watchDogCancel context.CancelFunc
 	watchDogOnce   sync.Once
 	watchDogDone   chan struct{}
-	
+
 	mu sync.Mutex
 }
 
 func newLock(redis *redis.Client, name string, options *LockOptions, logger Logger) Lock {
 	return &lockImpl{
-		redis:   redis,
-		name:    name,
-		value:   generateValue(),
-		options: options,
-		logger:  logger,
+		redis:        redis,
+		name:         name,
+		value:        generateValue(),
+		options:      options,
+		logger:       logger,
 		watchDogDone: make(chan struct{}),
 	}
 }
@@ -44,7 +45,7 @@ func newLock(redis *redis.Client, name string, options *LockOptions, logger Logg
 func (l *lockImpl) Lock(ctx context.Context) error {
 	deadline := time.Now().Add(l.options.WaitTimeout)
 	l.logger.Debug(ctx, "Attempting to acquire lock: %s", l.name)
-	
+
 	attempt := 0
 	for {
 		attempt++
@@ -147,10 +148,10 @@ func (l *lockImpl) Refresh(ctx context.Context) error {
 func (l *lockImpl) startWatchDog(ctx context.Context) {
 	l.watchDogOnce.Do(func() {
 		l.watchDogCtx, l.watchDogCancel = context.WithCancel(context.Background())
-		
+
 		go func() {
 			defer close(l.watchDogDone)
-			
+
 			ticker := time.NewTicker(l.options.WatchDogTimeout / 3)
 			defer ticker.Stop()
 
