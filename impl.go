@@ -104,8 +104,6 @@ func (l *lockImpl) Unlock(ctx context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.logger.Debug(ctx, "Releasing lock: %s", l.name)
-
 	if l.watchDogCancel != nil {
 		l.watchDogCancel()
 		<-l.watchDogDone
